@@ -1,0 +1,52 @@
+#!/bin/sh
+
+VOLUME="volumeLab2"
+echo "CHEK LOG"
+docker run --rm -v "$VOLUME:/shared" alpine sh -c '
+set -e
+[ -f /shared/.log ] || { echo "NO LOG"; exit 1; }
+
+echo "1) ids"
+awk "{print \$1}" /shared/.log | sort -u
+
+echo "2) names"
+NAMES=$(awk "{print \$3}" /shared/.log | sort -u)
+echo "$NAMES"
+
+echo "3) no gaps 001..MAX"
+MAX=$(echo "$NAMES" | tail -1)
+MAX_NUM=$(echo "$MAX" | sed "s/^0*//")
+[ -z "$MAX_NUM" ] && MAX_NUM=0
+MISSING=0
+i=1
+while [ "$i" -le "$MAX_NUM" ]; do
+    NAME=$(printf "%03d" "$i")
+    if ! echo "$NAMES" | grep -qx "$NAME"; then
+        echo "MISSING $NAME"
+        MISSING=1
+    fi
+    i=$((i + 1))
+done
+[ "$MISSING" -eq 0 ] && echo "OK 001..$MAX"
+
+echo "4) SEQ PER ID"
+awk "{print \$1, \$2}" /shared/.log | sort -k1,1 -k2,2n | awk "
+    \$1 != prev_id { prev_id = \$1; expected = 1 }
+    {
+      if (\$2 != expected) {
+        print \"GAP IN \" \$1 \": EXPECTED \" expected \", GOT \" \$2
+      }
+      expected = \$2 + 1
+    }
+"
+echo "OK"
+
+echo "5) unique (ID, SEQ)"
+DUP=$(awk "{print \$1, \$2}" /shared/.log | sort | uniq -d)
+if [ -z "$DUP" ]; then
+    echo "OK"
+else
+    echo "DUPLICATES"
+    echo "$DUP"
+fi
+'
